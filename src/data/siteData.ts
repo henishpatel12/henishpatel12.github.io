@@ -39,7 +39,7 @@ export const contactInfo = [
   {
     icon: "ri-time-line",
     title: "Hours",
-    content: ["Mon - Fri: 9:00 AM - 7:00 PM", "Sat: 10:00 AM - 5:00 PM", "Sun: Closed"],
+    content: ["Mon - Fri: 10:00 AM - 7:00 PM", "Sat: 10:00 AM - 6:00 PM", "Sun: 12:00 PM - 05:00 PM"],
     link: null,
   },
 ];
