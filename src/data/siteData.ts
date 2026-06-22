@@ -2,7 +2,7 @@ export const siteData = {
   name: "Fonwireless",
   tagline: "Mobile Repair Shop in Ottawa",
   description: "Trusted same-day phone repairs, quality accessories, and certified used phones in Ottawa.",
-  address: "1642 Merivale Rd, Ottawa, ON K2G 0B1",
+  address: "1642 Merivale Rd, Ottawa, ON K2G 4A1",
   phone: "+1 (613) 614-9047",
   email: "fonwireless1@gmail.com",
   social: {
