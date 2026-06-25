@@ -29,7 +29,7 @@ if (hasSheetConfig) {
         condition: data.condition,
         image: data.image,
       }))
-      .filter((phone: any) => phone.model.length > 0);
+      .filter((phone: any) => phone.model.length > 0 && phone.model.toLowerCase() !== "model");
   } catch (error) {
     loadError = "We could not load the latest inventory right now. Please call for availability.";
     console.error(error);
