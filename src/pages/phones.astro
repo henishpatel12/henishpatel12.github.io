@@ -1,7 +1,5 @@
 ---
-import { getCollection } from "astro:content";
 import Layout from "../layouts/Layout.astro";
-import PhoneCard from "../components/PhoneCard.astro";
 import { siteData } from "../data/siteData";
 import { withBase } from "../utils/basePath";
 
@@ -13,31 +11,19 @@ const sheetValue =
   import.meta.env.PUBLIC_GOOGLE_SHEETS_CSV_URL ??
   "";
 
-const hasSheetConfig = Boolean(String(sheetValue).trim());
-
-let phones: { model: string; price: string; storage: string; condition: string; image: string }[] = [];
-let loadError = "";
-
-if (hasSheetConfig) {
-  try {
-    const entries = await getCollection("phones");
-    phones = entries
-      .map(({ data }: any) => ({
-        model: data.model,
-        price: data.price,
-        storage: data.storage,
-        condition: data.condition,
-        image: data.image,
-      }))
-      .filter((phone: any) => phone.model.length > 0 && phone.model.toLowerCase() !== "model");
-  } catch (error) {
-    loadError = "We could not load the latest inventory right now. Please call for availability.";
-    console.error(error);
-  }
-} else {
-  loadError =
-    "Inventory feed is not configured yet. Set PUBLIC_GOOGLE_SHEETS_DOCUMENT_ID (or a Google Sheets URL in PUBLIC_GOOGLE_SHEETS_CSV_URL).";
+function resolveCsvUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const match = trimmed.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  if (!match && /^https?:\/\//i.test(trimmed)) return trimmed;
+  const documentId = match?.[1] ?? trimmed;
+  return `https://docs.google.com/spreadsheets/d/${documentId}/gviz/tq?tqx=out:csv&gid=0`;
 }
+
+const csvUrl = resolveCsvUrl(String(sheetValue));
+const noConfigMessage =
+  "Inventory feed is not configured yet. Set PUBLIC_GOOGLE_SHEETS_DOCUMENT_ID (or a Google Sheets URL in PUBLIC_GOOGLE_SHEETS_CSV_URL).";
+const fetchErrorMessage = "We could not load the latest inventory right now. Please call for availability.";
 ---
 
 <Layout
@@ -57,39 +43,185 @@ if (hasSheetConfig) {
 
   <section class="py-20 bg-slate-800">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      {loadError && (
-        <div class="mb-8 bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 text-orange-100">
-          {loadError}
-        </div>
-      )}
+      <div id="phones-loading" class="text-center text-gray-300 py-16">
+        <i class="ri-loader-4-line animate-spin text-4xl text-orange-500"></i>
+        <p class="mt-4">Loading latest inventory...</p>
+      </div>
 
-      {phones.length > 0 ? (
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {phones.map((phone) => (
-            <PhoneCard
-              model={phone.model}
-              price={phone.price}
-              storage={phone.storage}
-              condition={phone.condition}
-              image={phone.image}
-            />
-          ))}
-        </div>
-      ) : (
-        <div class="bg-slate-900 rounded-xl border border-slate-700 p-10 text-center">
-          <h2 class="text-3xl font-bold text-white mb-3">No Phones Listed Right Now</h2>
-          <p class="text-gray-300 mb-6">
-            Contact us for the latest arrivals and same-day availability.
-          </p>
-          <a
-            href={withBasePath('/contact')}
-            class="inline-flex items-center justify-center gap-3 bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-lg font-bold text-lg transition-all"
-          >
-            Contact the Shop
-            <i class="ri-arrow-right-line"></i>
-          </a>
-        </div>
-      )}
+      <div id="phones-error" class="hidden mb-8 bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 text-orange-100"></div>
+
+      <div id="phones-grid" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"></div>
+
+      <div id="phones-empty" class="hidden bg-slate-900 rounded-xl border border-slate-700 p-10 text-center">
+        <h2 class="text-3xl font-bold text-white mb-3">No Phones Listed Right Now</h2>
+        <p class="text-gray-300 mb-6">
+          Contact us for the latest arrivals and same-day availability.
+        </p>
+        <a
+          href={withBasePath('/contact')}
+          class="inline-flex items-center justify-center gap-3 bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-lg font-bold text-lg transition-all"
+        >
+          Contact the Shop
+          <i class="ri-arrow-right-line"></i>
+        </a>
+      </div>
     </div>
   </section>
 </Layout>
+
+<script define:vars={{ csvUrl, noConfigMessage, fetchErrorMessage }}>
+  const loadingEl = document.getElementById("phones-loading");
+  const errorEl = document.getElementById("phones-error");
+  const gridEl = document.getElementById("phones-grid");
+  const emptyEl = document.getElementById("phones-empty");
+
+  function showError(message) {
+    loadingEl.classList.add("hidden");
+    errorEl.textContent = message;
+    errorEl.classList.remove("hidden");
+  }
+
+  function parseCsv(text) {
+    const rows = [];
+    let row = [];
+    let field = "";
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (inQuotes) {
+        if (char === '"') {
+          if (text[i + 1] === '"') {
+            field += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          field += char;
+        }
+        continue;
+      }
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === ",") {
+        row.push(field);
+        field = "";
+      } else if (char === "\n") {
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = "";
+      } else if (char !== "\r") {
+        field += char;
+      }
+    }
+    if (field.length > 0 || row.length > 0) {
+      row.push(field);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  function resolveImageUrl(raw) {
+    const trimmed = raw.trim();
+    if (!trimmed) return "";
+    const driveMatch = trimmed.match(/\/d\/([a-zA-Z0-9_-]{10,})/) || trimmed.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+    if (driveMatch) return `https://lh3.googleusercontent.com/d/${driveMatch[1]}`;
+    if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) return `https://lh3.googleusercontent.com/d/${trimmed}`;
+    return trimmed;
+  }
+
+  function createPhoneCard(phone) {
+    const article = document.createElement("article");
+    article.className =
+      "bg-slate-900 rounded-xl border border-slate-700 overflow-hidden hover:border-orange-500 transition-all transform hover:scale-105";
+
+    const imageWrap = document.createElement("div");
+    imageWrap.className = "aspect-[4/3] bg-slate-800 overflow-hidden";
+    if (phone.image) {
+      const img = document.createElement("img");
+      img.src = phone.image;
+      img.alt = phone.model;
+      img.className = "w-full h-full object-cover";
+      img.loading = "lazy";
+      imageWrap.appendChild(img);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "w-full h-full flex items-center justify-center text-gray-500";
+      placeholder.innerHTML = '<i class="ri-smartphone-line text-5xl"></i>';
+      imageWrap.appendChild(placeholder);
+    }
+
+    const body = document.createElement("div");
+    body.className = "p-6";
+
+    const title = document.createElement("h3");
+    title.className = "text-2xl font-bold text-white mb-2";
+    title.textContent = phone.model;
+
+    const price = document.createElement("p");
+    price.className = "text-orange-500 text-xl font-semibold mb-4";
+    price.textContent = "Contact for price";
+
+    const details = document.createElement("div");
+    details.className = "space-y-2 text-gray-300";
+
+    const storageLine = document.createElement("p");
+    storageLine.className = "flex items-center gap-2";
+    storageLine.innerHTML = '<i class="ri-sd-card-line text-orange-500"></i>';
+    const storageSpan = document.createElement("span");
+    storageSpan.textContent = phone.storage || "Storage not listed";
+    storageLine.appendChild(storageSpan);
+
+    const conditionLine = document.createElement("p");
+    conditionLine.className = "flex items-center gap-2";
+    conditionLine.innerHTML = '<i class="ri-shield-check-line text-orange-500"></i>';
+    const conditionSpan = document.createElement("span");
+    conditionSpan.textContent = phone.condition || "Condition not listed";
+    conditionLine.appendChild(conditionSpan);
+
+    details.append(storageLine, conditionLine);
+    body.append(title, price, details);
+    article.append(imageWrap, body);
+    return article;
+  }
+
+  function renderPhones(phones) {
+    loadingEl.classList.add("hidden");
+    if (phones.length === 0) {
+      emptyEl.classList.remove("hidden");
+      return;
+    }
+    gridEl.append(...phones.map(createPhoneCard));
+    gridEl.classList.remove("hidden");
+  }
+
+  async function loadPhones() {
+    if (!csvUrl) {
+      showError(noConfigMessage);
+      return;
+    }
+    try {
+      const separator = csvUrl.includes("?") ? "&" : "?";
+      const response = await fetch(`${csvUrl}${separator}cb=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Sheet request failed: ${response.status}`);
+      const text = await response.text();
+      const rows = parseCsv(text).filter((row) => row.some((cell) => cell.trim() !== ""));
+      const phones = rows
+        .filter((row) => (row[0] || "").trim().toLowerCase() !== "model")
+        .map((row) => ({
+          model: (row[0] || "").trim(),
+          storage: (row[2] || "").trim(),
+          condition: (row[3] || "").trim(),
+          image: resolveImageUrl(row[4] || ""),
+        }))
+        .filter((phone) => phone.model.length > 0);
+      renderPhones(phones);
+    } catch (error) {
+      console.error(error);
+      showError(fetchErrorMessage);
+    }
+  }
+
+  loadPhones();
+</script>
